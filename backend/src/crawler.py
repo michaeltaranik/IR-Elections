@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Iterable
 import json
 import logging
-
 import requests
 from bs4 import BeautifulSoup
 

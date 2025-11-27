@@ -93,4 +93,4 @@ We have selected three distinct sources covering different political systems (Pr
 2.  Run the crawler: `python src/crawler.py`
 3.  Build the index: `python src/indexer.py`
 4.  Start the server: `python src/app.py`
-5.  Open browser at `http://localhost:8000`
+5.  Open browser at `http://127.0.0.1:5000`

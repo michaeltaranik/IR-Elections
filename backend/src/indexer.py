@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 import json
 import logging
 
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 def build_schema() -> Schema:
     return Schema(
         title=TEXT(stored=True),
-        content=TEXT(stored=False),
+        content=TEXT(stored=True),
         url=ID(stored=True),
         year=NUMERIC(stored=True),
         country=ID(stored=True),
@@ -37,13 +38,13 @@ def load_corpus() -> list[dict]:
 
 
 def build_index() -> None:
+    # Rebuild from scratch to avoid stale indexes/locks.
+    if INDEX_DIR.exists():
+        shutil.rmtree(INDEX_DIR)
     INDEX_DIR.mkdir(exist_ok=True)
-    schema = build_schema()
 
-    if index.exists_in(INDEX_DIR):
-        idx = index.open_dir(INDEX_DIR)
-    else:
-        idx = index.create_in(INDEX_DIR, schema)
+    schema = build_schema()
+    idx = index.create_in(INDEX_DIR, schema)
 
     writer = idx.writer()
     documents = load_corpus()

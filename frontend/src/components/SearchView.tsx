@@ -2,15 +2,16 @@ import { useState } from 'react';
 import { Search } from 'lucide-react';
 
 interface SearchViewProps {
-  onSearch: (query: string) => void;
+  onSearch: (query: string, country?: string | null, year?: number | null) => void;
+  loading?: boolean;
 }
 
-export function SearchView({ onSearch }: SearchViewProps) {
+export function SearchView({ onSearch, loading = false }: SearchViewProps) {
   const [query, setQuery] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (query.trim()) {
+    if (query.trim() && !loading) {
       onSearch(query.trim());
     }
   };
@@ -34,7 +35,8 @@ export function SearchView({ onSearch }: SearchViewProps) {
             />
             <button
               type="submit"
-              className="absolute right-2 top-1/2 -translate-y-1/2 bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 transition-colors"
+              disabled={loading}
+              className="absolute right-2 top-1/2 -translate-y-1/2 bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Search className="w-5 h-5" />
             </button>
@@ -43,28 +45,32 @@ export function SearchView({ onSearch }: SearchViewProps) {
 
         <div className="mt-8 grid grid-cols-2 gap-4">
           <button
-            onClick={() => onSearch('Presidential')}
-            className="px-4 py-3 bg-white border border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
+            onClick={() => onSearch('election', 'France', null)}
+            disabled={loading}
+            className="px-4 py-3 bg-white border border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors disabled:opacity-50"
           >
-            Presidential Elections
+            France Elections
           </button>
           <button
-            onClick={() => onSearch('Congressional')}
-            className="px-4 py-3 bg-white border border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
+            onClick={() => onSearch('election', 'USA', null)}
+            disabled={loading}
+            className="px-4 py-3 bg-white border border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors disabled:opacity-50"
           >
-            Congressional Elections
+            USA Elections
           </button>
           <button
-            onClick={() => onSearch('2024')}
-            className="px-4 py-3 bg-white border border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
+            onClick={() => onSearch('election', null, 2024)}
+            disabled={loading}
+            className="px-4 py-3 bg-white border border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors disabled:opacity-50"
           >
             2024 Elections
           </button>
           <button
-            onClick={() => onSearch('California')}
-            className="px-4 py-3 bg-white border border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
+            onClick={() => onSearch('election', 'Switzerland', null)}
+            disabled={loading}
+            className="px-4 py-3 bg-white border border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors disabled:opacity-50"
           >
-            California Elections
+            Switzerland Elections
           </button>
         </div>
       </div>

@@ -1,38 +1,49 @@
 import { useState } from 'react';
-import { Search, SlidersHorizontal } from 'lucide-react';
-import { ElectionResult } from '../App';
+import { Search, SlidersHorizontal, Loader2 } from 'lucide-react';
+import { SearchResult } from '../api';
 import { ResultCard } from './ResultCard';
 
 interface ResultsViewProps {
-  results: ElectionResult[];
+  results: SearchResult[];
   searchQuery: string;
   onNewSearch: () => void;
+  onSearch: (query: string, country?: string | null, year?: number | null) => void;
+  loading?: boolean;
+  error?: string | null;
 }
 
-export function ResultsView({ results, searchQuery, onNewSearch }: ResultsViewProps) {
+export function ResultsView({ results, searchQuery, onNewSearch, onSearch, loading = false, error }: ResultsViewProps) {
   const [newQuery, setNewQuery] = useState(searchQuery);
-  const [selectedType, setSelectedType] = useState<string>('All');
-  const [selectedParty, setSelectedParty] = useState<string>('All');
+  const [selectedCountry, setSelectedCountry] = useState<string>('All');
   const [selectedYear, setSelectedYear] = useState<string>('All');
 
   // Get unique values for filters
-  const types = ['All', ...Array.from(new Set(results.map(r => r.type)))];
-  const parties = ['All', ...Array.from(new Set(results.map(r => r.party)))];
-  const years = ['All', ...Array.from(new Set(results.map(r => r.year.toString())))];
+  const countries = ['All', ...Array.from(new Set(results.map(r => r.country).filter(Boolean) as string[]))];
+  const years = ['All', ...Array.from(new Set(results.map(r => r.year?.toString()).filter(Boolean) as string[]))];
 
   // Apply filters
   const filteredResults = results.filter(result => {
-    const typeMatch = selectedType === 'All' || result.type === selectedType;
-    const partyMatch = selectedParty === 'All' || result.party === selectedParty;
-    const yearMatch = selectedYear === 'All' || result.year.toString() === selectedYear;
-    return typeMatch && partyMatch && yearMatch;
+    const countryMatch = selectedCountry === 'All' || result.country === selectedCountry;
+    const yearMatch = selectedYear === 'All' || result.year?.toString() === selectedYear;
+    return countryMatch && yearMatch;
   });
+
+  // Group by cluster
+  const groupedByCluster = filteredResults.reduce((acc, result) => {
+    const clusterKey = result.cluster !== null ? `Cluster ${result.cluster + 1}` : 'Unclustered';
+    if (!acc[clusterKey]) {
+      acc[clusterKey] = [];
+    }
+    acc[clusterKey].push(result);
+    return acc;
+  }, {} as Record<string, SearchResult[]>);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (newQuery.trim()) {
-      // Trigger a new search by calling parent
-      window.location.reload(); // Simple way to reset - in production, you'd pass this up
+    if (newQuery.trim() && !loading) {
+      const country = selectedCountry !== 'All' ? selectedCountry : null;
+      const year = selectedYear !== 'All' ? parseInt(selectedYear) : null;
+      onSearch(newQuery.trim(), country, year);
     }
   };
 
@@ -80,30 +91,16 @@ export function ResultsView({ results, searchQuery, onNewSearch }: ResultsViewPr
               </div>
 
               <div className="space-y-6">
-                {/* Election Type Filter */}
+                {/* Country Filter */}
                 <div>
-                  <label className="block text-gray-700 mb-2">Election Type</label>
+                  <label className="block text-gray-700 mb-2">Country</label>
                   <select
-                    value={selectedType}
-                    onChange={(e) => setSelectedType(e.target.value)}
+                    value={selectedCountry}
+                    onChange={(e) => setSelectedCountry(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
                   >
-                    {types.map(type => (
-                      <option key={type} value={type}>{type}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Party Filter */}
-                <div>
-                  <label className="block text-gray-700 mb-2">Party</label>
-                  <select
-                    value={selectedParty}
-                    onChange={(e) => setSelectedParty(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
-                  >
-                    {parties.map(party => (
-                      <option key={party} value={party}>{party}</option>
+                    {countries.map(country => (
+                      <option key={country} value={country}>{country}</option>
                     ))}
                   </select>
                 </div>
@@ -123,11 +120,10 @@ export function ResultsView({ results, searchQuery, onNewSearch }: ResultsViewPr
                 </div>
 
                 {/* Clear Filters */}
-                {(selectedType !== 'All' || selectedParty !== 'All' || selectedYear !== 'All') && (
+                {(selectedCountry !== 'All' || selectedYear !== 'All') && (
                   <button
                     onClick={() => {
-                      setSelectedType('All');
-                      setSelectedParty('All');
+                      setSelectedCountry('All');
                       setSelectedYear('All');
                     }}
                     className="w-full px-4 py-2 text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
@@ -147,14 +143,33 @@ export function ResultsView({ results, searchQuery, onNewSearch }: ResultsViewPr
               </p>
             </div>
 
-            {filteredResults.length === 0 ? (
+            {loading ? (
               <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
-                <p className="text-gray-600">No results found. Try adjusting your filters.</p>
+                <Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-600 mb-4" />
+                <p className="text-gray-600">Searching...</p>
+              </div>
+            ) : error ? (
+              <div className="bg-red-50 rounded-lg border border-red-200 p-6">
+                <p className="text-red-800 font-medium mb-2">Error</p>
+                <p className="text-red-600">{error}</p>
+              </div>
+            ) : filteredResults.length === 0 ? (
+              <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
+                <p className="text-gray-600">No results found. Try adjusting your filters or search query.</p>
               </div>
             ) : (
-              <div className="space-y-4">
-                {filteredResults.map(result => (
-                  <ResultCard key={result.id} result={result} />
+              <div className="space-y-8">
+                {Object.entries(groupedByCluster).map(([clusterName, clusterResults]) => (
+                  <div key={clusterName}>
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4 pb-2 border-b border-gray-200">
+                      {clusterName} ({clusterResults.length} result{clusterResults.length !== 1 ? 's' : ''})
+                    </h3>
+                    <div className="space-y-4">
+                      {clusterResults.map((result, idx) => (
+                        <ResultCard key={`${result.url}-${idx}`} result={result} />
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             )}

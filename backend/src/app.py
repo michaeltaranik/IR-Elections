@@ -7,6 +7,7 @@ from typing import Any
 import logging
 
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 from sklearn.cluster import KMeans
 from sklearn.feature_extraction.text import TfidfVectorizer
 from whoosh import index
@@ -16,6 +17,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 INDEX_DIR = BASE_DIR / "index"
 
 app = Flask(__name__)
+CORS(app)
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -101,6 +103,11 @@ def search():
     results = run_query(query, filters)
     apply_clustering(results)
     return jsonify({"results": [result.to_dict() for result in results]})
+
+
+@app.get("/health")
+def health():
+    return jsonify({"status": "ok"})
 
 
 if __name__ == "__main__":

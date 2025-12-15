@@ -209,4 +209,5 @@ __marimo__/
 
 node_modules/
 
-data/
+# Project data (crawled corpus, generated files)
+backend/data/

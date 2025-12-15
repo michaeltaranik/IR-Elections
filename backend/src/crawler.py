@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Callable
-from urllib.parse import quote  # Added for Text Fragments
+from urllib.parse import quote
 import json
 import logging
 import re
@@ -65,13 +65,48 @@ def extract_year(text: str) -> int | None:
     return int(match.group()) if match else None
 
 
-def extract_year_from_url(url: str) -> int | None:
-    # Kept for backward compatibility if needed, but the new logic uses extract_year
-    return extract_year(url)
-
-
 def normalize_text(text: str) -> str:
     return " ".join(text.split())
+
+
+def normalize_table(table: BeautifulSoup) -> list[list[str]]:
+    """Converts a complex HTML table (rowspan/colspan) into a simple 2D grid."""
+    rows = table.find_all("tr")
+    if not rows:
+        return []
+
+    # Initialize a large empty grid
+    # (Size 100 is arbitrary but sufficient for most web tables)
+    grid = []
+    for _ in rows:
+        grid.append([""] * 100)
+
+    max_cols = 0
+    
+    for r_idx, row in enumerate(rows):
+        c_idx = 0
+        cells = row.find_all(["td", "th"])
+        
+        for cell in cells:
+            # Skip grid slots already filled by a rowspan from above
+            while grid[r_idx][c_idx]:
+                c_idx += 1
+            
+            text = normalize_text(cell.get_text(" ", strip=True))
+            rowspan = int(cell.get("rowspan", 1))
+            colspan = int(cell.get("colspan", 1))
+
+            # Fill the rectangle defined by rowspan/colspan
+            for r in range(rowspan):
+                for c in range(colspan):
+                    if r_idx + r < len(grid):
+                        grid[r_idx + r][c_idx + c] = text
+            
+            c_idx += colspan
+        max_cols = max(max_cols, c_idx)
+
+    # Trim grid to actual size
+    return [row[:max_cols] for row in grid]
 
 
 def body_document(soup: BeautifulSoup, url: str, country: str, title_prefix: str = "Page") -> Document:
@@ -79,104 +114,89 @@ def body_document(soup: BeautifulSoup, url: str, country: str, title_prefix: str
     title = f"{title_prefix}: {normalize_text(raw_title)}"
     content = normalize_text(soup.get_text(" ", strip=True))[:MAX_CONTENT_LEN]
     
-    # Try multiple signals to infer year for full-page docs.
+    # Try multiple signals to infer year for full-page docs
     year = extract_year(url) or extract_year(title) or extract_year(content[:400])
 
     return Document(
         title=title,
         content=content,
-        url=url,  # Clean URL for the main page
+        url=url,
         year=year,
         country=country,
     )
 
 
-def parse_table_rows(
-    soup: BeautifulSoup, url: str, country: str
-) -> list[Document]:
+def parse_table_rows(soup: BeautifulSoup, url: str, country: str) -> list[Document]:
     documents: list[Document] = []
     tables = soup.find_all("table")
     
     for table in tables:
-        rows = table.find_all("tr")
-
-        # Extract header cells
-        header_cells: list[str] = []
-        if rows:
-            potential_header_cells = rows[0].find_all(["th", "strong"])
-            if potential_header_cells:
-                header_cells = [
-                    normalize_text(th.get_text(" ", strip=True)) for th in potential_header_cells
-                ]
-
-        # Context: Caption and Heading
-        caption_text = ""
-        if table.caption:
-            caption_text = normalize_text(table.caption.get_text(" ", strip=True))
-
+        # 1. Normalize complex tables (handles colspan/rowspan issues)
+        grid = normalize_table(table)
+        if not grid or len(grid) < 2:
+            continue
+            
+        # 2. Assume row 0 is headers
+        headers = grid[0]
+        
+        # 3. Get Context (Section Heading)
         heading_text = ""
         heading_anchor = None
-        
-        # IMPROVEMENT: Capture the real HTML ID of the heading if it exists
-        heading = table.find_previous(["h1", "h2", "h3", "h4"])
-        if heading:
-            heading_text = normalize_text(heading.get_text(" ", strip=True))
-            if heading.has_attr("id"):
-                heading_anchor = heading["id"]
+        prev = table.find_previous(["h1", "h2", "h3", "h4"])
+        if prev:
+            heading_text = normalize_text(prev.get_text(" ", strip=True))
+            if prev.has_attr("id"):
+                heading_anchor = prev["id"]
 
-        data_rows = rows[1:] if rows and header_cells else rows
-
-        for idx, row in enumerate(data_rows):
-            cell_nodes = row.find_all(["td", "th"])
-            cells = [normalize_text(td.get_text(" ", strip=True)) for td in cell_nodes]
-            if not cells:
+        # 4. Extract Data Rows
+        for row in grid[1:]:
+            # Skip empty rows or rows that replicate headers
+            if not any(row) or row == headers:
+                continue
+                
+            # Filter empty cells to find data
+            non_empty_cells = [c for c in row if c]
+            if not non_empty_cells:
                 continue
 
-            # First cell is often the primary key/title
-            primary_cell = cells[0] if cells else ""
-            title = primary_cell or heading_text or caption_text or country
-
-            labelled_parts: list[str] = []
-            for i, value in enumerate(cells):
-                if not value:
-                    continue
-                if i < len(header_cells) and header_cells[i]:
-                    labelled_parts.append(f"{header_cells[i]}: {value}")
-                else:
-                    labelled_parts.append(value)
-
-            context_bits = [country]
-            if heading_text:
-                context_bits.append(heading_text)
-            if caption_text:
-                context_bits.append(caption_text)
-
-            content = normalize_text(" | ".join(context_bits + labelled_parts))
-            if not content:
-                continue
-
-            # IMPROVEMENT: Generate a deep link
-            # Priority 1: Text Fragment (scrolls to specific row text)
-            # Priority 2: Section ID (scrolls to table header)
-            if primary_cell and len(primary_cell) > 3:
-                # Create a text fragment: #:~:text=EncodedString
-                clean_fragment = quote(primary_cell)
-                url_with_anchor = f"{url}#:~:text={clean_fragment}"
+            primary_key = non_empty_cells[0]
+            
+            # Build content string: "Header: Value | Header: Value"
+            parts = []
+            for i, cell_value in enumerate(row):
+                if i < len(headers) and headers[i] and cell_value:
+                    parts.append(f"{headers[i]}: {cell_value}")
+                elif cell_value:
+                    parts.append(cell_value)
+            
+            content = " | ".join(parts)
+            
+            # --- IMPROVED DEEP LINKING ---
+            # Create a "Range Fragment" (StartText,EndText) to ensure uniqueness.
+            # Example: #:~:text=Trump,46.8%
+            url_with_anchor = url
+            
+            if len(non_empty_cells) >= 2:
+                # Use first and second values to anchor the link
+                first = quote(non_empty_cells[0])
+                second = quote(non_empty_cells[1])
+                url_with_anchor = f"{url}#:~:text={first},{second}"
+            elif len(non_empty_cells) == 1 and len(non_empty_cells[0]) > 3:
+                # Fallback for single-column rows
+                url_with_anchor = f"{url}#:~:text={quote(non_empty_cells[0])}"
             elif heading_anchor:
+                # Fallback to section header
                 url_with_anchor = f"{url}#{heading_anchor}"
-            else:
-                url_with_anchor = url
 
             documents.append(
                 Document(
-                    title=title or "Untitled",
+                    title=f"{country}: {heading_text} - {primary_key}",
                     content=content[:MAX_CONTENT_LEN],
                     url=url_with_anchor,
                     year=(
                         extract_year(url)
                         or extract_year(heading_text)
-                        or extract_year(caption_text)
-                        or extract_year(title)
+                        or extract_year(primary_key)
                     ),
                     country=country,
                 )
@@ -184,12 +204,13 @@ def parse_table_rows(
     return documents
 
 
+# --- Country Parsers (Wrapper Functions) ---
+
 def parse_france(html: str, url: str) -> list[Document]:
     soup = BeautifulSoup(html, "html.parser")
     docs = parse_table_rows(soup, url, country="France")
     docs.append(body_document(soup, url, "France", title_prefix="Full page"))
     return docs
-
 
 def parse_usa(html: str, url: str) -> list[Document]:
     soup = BeautifulSoup(html, "html.parser")
@@ -197,20 +218,17 @@ def parse_usa(html: str, url: str) -> list[Document]:
     docs.append(body_document(soup, url, "USA", title_prefix="Full page"))
     return docs
 
-
 def parse_switzerland(html: str, url: str) -> list[Document]:
     soup = BeautifulSoup(html, "html.parser")
     docs = parse_table_rows(soup, url, country="Switzerland")
     docs.append(body_document(soup, url, "Switzerland", title_prefix="Full page"))
     return docs
 
-
 def parse_germany(html: str, url: str) -> list[Document]:
     soup = BeautifulSoup(html, "html.parser")
     docs = parse_table_rows(soup, url, country="Germany")
     docs.append(body_document(soup, url, "Germany", title_prefix="Full page"))
     return docs
-
 
 def parse_canada(html: str, url: str) -> list[Document]:
     soup = BeautifulSoup(html, "html.parser")
@@ -220,9 +238,7 @@ def parse_canada(html: str, url: str) -> list[Document]:
 
 
 def discover_links(soup: BeautifulSoup, base_url: str, max_links: int = 10) -> list[str]:
-    """Discover election-related links from a page."""
     links: list[str] = []
-    # robust domain extraction
     parts = base_url.split("/")
     base_domain = f"{parts[0]}//{parts[2]}" 
     
@@ -239,12 +255,10 @@ def discover_links(soup: BeautifulSoup, base_url: str, max_links: int = 10) -> l
             else:
                 continue
             
-            # Simple check to avoid duplicates immediately
             if full_url not in links:
                 links.append(full_url)
                 if len(links) >= max_links:
                     break
-    
     return links
 
 
@@ -257,12 +271,12 @@ def persist_documents(documents: Iterable[Document]) -> None:
 
 
 def crawl() -> None:
+    # Seed URLs
     sources: list[tuple[str, Callable[[str, str], list[Document]]]] = [
         ("https://en.wikipedia.org/wiki/French_presidential_election", parse_france),
         ("https://en.wikipedia.org/wiki/United_States_presidential_election", parse_usa),
         ("https://en.wikipedia.org/wiki/Swiss_federal_election", parse_switzerland),
         ("https://www.presidency.ucsb.edu/statistics/data", parse_usa),
-        ("https://www.bfs.admin.ch/bfs/en/home/statistics/politics/elections.html", parse_switzerland),
         ("https://www.bundeswahlleiter.de/en/bundestagswahlen/2021/ergebnisse/bund-99.html", parse_germany),
         ("https://www.elections.ca/content.aspx?section=ele&dir=pas/41ge&document=index&lang=e", parse_canada),
     ]
@@ -271,7 +285,7 @@ def crawl() -> None:
     seen: set[tuple[str, str]] = set()
     seen_hashes: set[str] = set()
     
-    urls_to_crawl: list[tuple[str, Callable[[str, str], list[Document]]]] = sources.copy()
+    urls_to_crawl = sources.copy()
     crawled_urls: set[str] = set()
     
     max_depth = 2 
@@ -293,7 +307,7 @@ def crawl() -> None:
                 docs = parser(html, url)
                 
                 for doc in docs:
-                    # Deduplication logic
+                    # Deduplicate based on URL base (ignoring anchor) and Title
                     base_url = doc.url.split("#", 1)[0]
                     key = (base_url, doc.title)
                     content_hash = hashlib.sha1(f"{doc.title}|{doc.content}".encode("utf-8", errors="ignore")).hexdigest()
@@ -309,8 +323,8 @@ def crawl() -> None:
                     discovered_links = discover_links(soup, url, max_links=10)
                     for link in discovered_links:
                         if link not in crawled_urls:
-                            # Heuristic parser selection
                             link_lower = link.lower()
+                            # Select parser based on simple keyword matching
                             if "france" in link_lower or "french" in link_lower:
                                 next_parser = parse_france
                             elif "usa" in link_lower or "united_states" in link_lower or "american" in link_lower:

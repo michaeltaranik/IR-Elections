@@ -16,6 +16,7 @@ export function ResultsView({ results, searchQuery, onNewSearch, onSearch, loadi
   const [newQuery, setNewQuery] = useState(searchQuery);
   const [selectedCountry, setSelectedCountry] = useState<string>('All');
   const [selectedYear, setSelectedYear] = useState<string>('All');
+  const [selectedCluster, setSelectedCluster] = useState<string>('All');
 
   // Keep the local input in sync with parent search query
   useEffect(() => {
@@ -25,12 +26,21 @@ export function ResultsView({ results, searchQuery, onNewSearch, onSearch, loadi
   // Get unique values for filters
   const countries = ['All', ...Array.from(new Set(results.map(r => r.country).filter(Boolean) as string[]))];
   const years = ['All', ...Array.from(new Set(results.map(r => r.year?.toString()).filter(Boolean) as string[]))];
+  const clusters = ['All', ...Array.from(
+    new Set(
+      results
+        .map(r => (typeof r.cluster === 'number' ? `Cluster ${r.cluster + 1}` : null))
+        .filter(Boolean) as string[]
+    )
+  )];
 
   // Apply filters
   const filteredResults = results.filter(result => {
     const countryMatch = selectedCountry === 'All' || result.country === selectedCountry;
     const yearMatch = selectedYear === 'All' || result.year?.toString() === selectedYear;
-    return countryMatch && yearMatch;
+    const clusterLabel = typeof result.cluster === 'number' ? `Cluster ${result.cluster + 1}` : 'Unclustered';
+    const clusterMatch = selectedCluster === 'All' || clusterLabel === selectedCluster;
+    return countryMatch && yearMatch && clusterMatch;
   });
 
   // Group by cluster
@@ -124,12 +134,27 @@ export function ResultsView({ results, searchQuery, onNewSearch, onSearch, loadi
                   </select>
                 </div>
 
+                {/* Cluster Filter */}
+                <div>
+                  <label className="block text-gray-700 mb-2">Cluster</label>
+                  <select
+                    value={selectedCluster}
+                    onChange={(e) => setSelectedCluster(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
+                  >
+                    {clusters.map(cluster => (
+                      <option key={cluster} value={cluster}>{cluster}</option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* Clear Filters */}
-                {(selectedCountry !== 'All' || selectedYear !== 'All') && (
+                {(selectedCountry !== 'All' || selectedYear !== 'All' || selectedCluster !== 'All') && (
                   <button
                     onClick={() => {
                       setSelectedCountry('All');
                       setSelectedYear('All');
+                      setSelectedCluster('All');
                     }}
                     className="w-full px-4 py-2 text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
                   >

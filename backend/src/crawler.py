@@ -4,15 +4,13 @@ Sources:
 1) France (French Ministry of Interior archives)
 2) USA (American Presidency Project statistics page)
 3) Switzerland (Swiss Federal Statistical Office)
-
-Each parser is intentionally conservative and extracts tabular text from a
-small number of seed pages. Add more seeds as needed.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Callable
+from urllib.parse import quote  # Added for Text Fragments
 import json
 import logging
 import re
@@ -23,7 +21,7 @@ from bs4 import BeautifulSoup
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 CORPUS_PATH = DATA_DIR / "corpus.json"
-MAX_CONTENT_LEN = 2000  # keep snippets reasonable for indexing
+MAX_CONTENT_LEN = 2000
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -52,7 +50,6 @@ def fetch_html(url: str) -> str:
     headers = {
         "User-Agent": "IR-Elections Bot/1.0 (+https://github.com/)",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
         "Referer": url,
     }
     response = requests.get(url, timeout=30, headers=headers)
@@ -60,9 +57,17 @@ def fetch_html(url: str) -> str:
     return response.text
 
 
-def extract_year_from_url(url: str) -> int | None:
-    match = re.search(r"(19|20)\d{2}", url)
+def extract_year(text: str) -> int | None:
+    """Helper to find a 4-digit year (19xx or 20xx) in any string."""
+    if not text:
+        return None
+    match = re.search(r"\b(19|20)\d{2}\b", text)
     return int(match.group()) if match else None
+
+
+def extract_year_from_url(url: str) -> int | None:
+    # Kept for backward compatibility if needed, but the new logic uses extract_year
+    return extract_year(url)
 
 
 def normalize_text(text: str) -> str:
@@ -73,13 +78,15 @@ def body_document(soup: BeautifulSoup, url: str, country: str, title_prefix: str
     raw_title = soup.title.string if soup.title else f"{country} Elections"
     title = f"{title_prefix}: {normalize_text(raw_title)}"
     content = normalize_text(soup.get_text(" ", strip=True))[:MAX_CONTENT_LEN]
-    anchor = re.sub(r"[^a-zA-Z0-9]+", "-", title.lower()).strip("-") or "page"
-    url_with_anchor = f"{url}#{anchor}"
+    
+    # Try multiple signals to infer year for full-page docs.
+    year = extract_year(url) or extract_year(title) or extract_year(content[:400])
+
     return Document(
         title=title,
         content=content,
-        url=url_with_anchor,
-        year=extract_year_from_url(url),
+        url=url,  # Clean URL for the main page
+        year=year,
         country=country,
     )
 
@@ -89,26 +96,88 @@ def parse_table_rows(
 ) -> list[Document]:
     documents: list[Document] = []
     tables = soup.find_all("table")
+    
     for table in tables:
         rows = table.find_all("tr")
-        # skip header row if it looks like one
-        data_rows = rows[1:] if rows and rows[0].find_all(["th", "strong"]) else rows
+
+        # Extract header cells
+        header_cells: list[str] = []
+        if rows:
+            potential_header_cells = rows[0].find_all(["th", "strong"])
+            if potential_header_cells:
+                header_cells = [
+                    normalize_text(th.get_text(" ", strip=True)) for th in potential_header_cells
+                ]
+
+        # Context: Caption and Heading
+        caption_text = ""
+        if table.caption:
+            caption_text = normalize_text(table.caption.get_text(" ", strip=True))
+
+        heading_text = ""
+        heading_anchor = None
+        
+        # IMPROVEMENT: Capture the real HTML ID of the heading if it exists
+        heading = table.find_previous(["h1", "h2", "h3", "h4"])
+        if heading:
+            heading_text = normalize_text(heading.get_text(" ", strip=True))
+            if heading.has_attr("id"):
+                heading_anchor = heading["id"]
+
+        data_rows = rows[1:] if rows and header_cells else rows
+
         for idx, row in enumerate(data_rows):
-            cells = [normalize_text(td.get_text(" ", strip=True)) for td in row.find_all(["td", "th"])]
+            cell_nodes = row.find_all(["td", "th"])
+            cells = [normalize_text(td.get_text(" ", strip=True)) for td in cell_nodes]
             if not cells:
                 continue
-            title = cells[0]
-            content = normalize_text(" | ".join(cells))
+
+            # First cell is often the primary key/title
+            primary_cell = cells[0] if cells else ""
+            title = primary_cell or heading_text or caption_text or country
+
+            labelled_parts: list[str] = []
+            for i, value in enumerate(cells):
+                if not value:
+                    continue
+                if i < len(header_cells) and header_cells[i]:
+                    labelled_parts.append(f"{header_cells[i]}: {value}")
+                else:
+                    labelled_parts.append(value)
+
+            context_bits = [country]
+            if heading_text:
+                context_bits.append(heading_text)
+            if caption_text:
+                context_bits.append(caption_text)
+
+            content = normalize_text(" | ".join(context_bits + labelled_parts))
             if not content:
                 continue
-            anchor_base = re.sub(r"[^a-zA-Z0-9]+", "-", (title or content).lower()).strip("-") or f"row-{idx}"
-            url_with_anchor = f"{url}#{anchor_base}-{idx}"
+
+            # IMPROVEMENT: Generate a deep link
+            # Priority 1: Text Fragment (scrolls to specific row text)
+            # Priority 2: Section ID (scrolls to table header)
+            if primary_cell and len(primary_cell) > 3:
+                # Create a text fragment: #:~:text=EncodedString
+                clean_fragment = quote(primary_cell)
+                url_with_anchor = f"{url}#:~:text={clean_fragment}"
+            elif heading_anchor:
+                url_with_anchor = f"{url}#{heading_anchor}"
+            else:
+                url_with_anchor = url
+
             documents.append(
                 Document(
                     title=title or "Untitled",
                     content=content[:MAX_CONTENT_LEN],
                     url=url_with_anchor,
-                    year=extract_year_from_url(url),
+                    year=(
+                        extract_year(url)
+                        or extract_year(heading_text)
+                        or extract_year(caption_text)
+                        or extract_year(title)
+                    ),
                     country=country,
                 )
             )
@@ -136,19 +205,33 @@ def parse_switzerland(html: str, url: str) -> list[Document]:
     return docs
 
 
+def parse_germany(html: str, url: str) -> list[Document]:
+    soup = BeautifulSoup(html, "html.parser")
+    docs = parse_table_rows(soup, url, country="Germany")
+    docs.append(body_document(soup, url, "Germany", title_prefix="Full page"))
+    return docs
+
+
+def parse_canada(html: str, url: str) -> list[Document]:
+    soup = BeautifulSoup(html, "html.parser")
+    docs = parse_table_rows(soup, url, country="Canada")
+    docs.append(body_document(soup, url, "Canada", title_prefix="Full page"))
+    return docs
+
+
 def discover_links(soup: BeautifulSoup, base_url: str, max_links: int = 10) -> list[str]:
     """Discover election-related links from a page."""
     links: list[str] = []
-    base_domain = "/".join(base_url.split("/")[:3])
+    # robust domain extraction
+    parts = base_url.split("/")
+    base_domain = f"{parts[0]}//{parts[2]}" 
     
     for anchor in soup.find_all("a", href=True):
         href = anchor.get("href", "")
         text = normalize_text(anchor.get_text())
         
-        # Look for election-related links
         election_keywords = ["election", "presidential", "parliamentary", "federal", "vote", "candidate", "result"]
         if any(keyword in text.lower() or keyword in href.lower() for keyword in election_keywords):
-            # Resolve relative URLs
             if href.startswith("/"):
                 full_url = base_domain + href
             elif href.startswith("http"):
@@ -156,6 +239,7 @@ def discover_links(soup: BeautifulSoup, base_url: str, max_links: int = 10) -> l
             else:
                 continue
             
+            # Simple check to avoid duplicates immediately
             if full_url not in links:
                 links.append(full_url)
                 if len(links) >= max_links:
@@ -173,38 +257,24 @@ def persist_documents(documents: Iterable[Document]) -> None:
 
 
 def crawl() -> None:
-    # Seed URLs: picked for accessibility; adjust/expand as needed.
     sources: list[tuple[str, Callable[[str, str], list[Document]]]] = [
-        (
-            "https://en.wikipedia.org/wiki/2022_French_presidential_election",
-            parse_france,
-        ),
-        (
-            "https://en.wikipedia.org/wiki/2024_United_States_presidential_election",
-            parse_usa,
-        ),
-        (
-            "https://en.wikipedia.org/wiki/2023_Swiss_federal_election",
-            parse_switzerland,
-        ),
-        # Additional seeds (non-Wikipedia) to diversify sources
-        (
-            "https://www.presidency.ucsb.edu/statistics/data",
-            parse_usa,
-        ),
-        (
-            "https://www.bfs.admin.ch/bfs/en/home/statistics/politics/elections.html",
-            parse_switzerland,
-        ),
+        ("https://en.wikipedia.org/wiki/French_presidential_election", parse_france),
+        ("https://en.wikipedia.org/wiki/United_States_presidential_election", parse_usa),
+        ("https://en.wikipedia.org/wiki/Swiss_federal_election", parse_switzerland),
+        ("https://www.presidency.ucsb.edu/statistics/data", parse_usa),
+        ("https://www.bfs.admin.ch/bfs/en/home/statistics/politics/elections.html", parse_switzerland),
+        ("https://www.bundeswahlleiter.de/en/bundestagswahlen/2021/ergebnisse/bund-99.html", parse_germany),
+        ("https://www.elections.ca/content.aspx?section=ele&dir=pas/41ge&document=index&lang=e", parse_canada),
     ]
 
     all_docs: list[Document] = []
-    # Deduplicate primarily by base URL (without fragment) + title, and also by content hash.
     seen: set[tuple[str, str]] = set()
     seen_hashes: set[str] = set()
+    
     urls_to_crawl: list[tuple[str, Callable[[str, str], list[Document]]]] = sources.copy()
     crawled_urls: set[str] = set()
-    max_depth = 2  # Limit crawling depth
+    
+    max_depth = 2 
     current_depth = 0
 
     while urls_to_crawl and current_depth < max_depth:
@@ -223,32 +293,40 @@ def crawl() -> None:
                 docs = parser(html, url)
                 
                 for doc in docs:
+                    # Deduplication logic
                     base_url = doc.url.split("#", 1)[0]
                     key = (base_url, doc.title)
                     content_hash = hashlib.sha1(f"{doc.title}|{doc.content}".encode("utf-8", errors="ignore")).hexdigest()
+                    
                     if key in seen or content_hash in seen_hashes:
                         continue
                     seen.add(key)
                     seen_hashes.add(content_hash)
                     all_docs.append(doc)
                 
-                # Discover links for next depth level
+                # Discovery for next depth
                 if current_depth < max_depth:
-                    discovered_links = discover_links(soup, url, max_links=20)
+                    discovered_links = discover_links(soup, url, max_links=10)
                     for link in discovered_links:
                         if link not in crawled_urls:
-                            # Determine parser based on URL patterns
-                            if "france" in link.lower() or "french" in link.lower():
-                                urls_to_crawl.append((link, parse_france))
-                            elif "usa" in link.lower() or "united_states" in link.lower() or "american" in link.lower():
-                                urls_to_crawl.append((link, parse_usa))
-                            elif "swiss" in link.lower() or "switzerland" in link.lower():
-                                urls_to_crawl.append((link, parse_switzerland))
+                            # Heuristic parser selection
+                            link_lower = link.lower()
+                            if "france" in link_lower or "french" in link_lower:
+                                next_parser = parse_france
+                            elif "usa" in link_lower or "united_states" in link_lower or "american" in link_lower:
+                                next_parser = parse_usa
+                            elif "swiss" in link_lower or "switzerland" in link_lower:
+                                next_parser = parse_switzerland
+                            elif "germany" in link_lower or "bundeswahlleiter" in link_lower:
+                                next_parser = parse_germany
+                            elif "canada" in link_lower or "elections.ca" in link_lower:
+                                next_parser = parse_canada
                             else:
-                                # Default parser based on first source parser
-                                urls_to_crawl.append((link, parser))
+                                next_parser = parser
+                            
+                            urls_to_crawl.append((link, next_parser))
                 
-            except Exception as exc:  # pragma: no cover - runtime protection
+            except Exception as exc:
                 logger.warning("Failed to process %s: %s", url, exc)
                 continue
 

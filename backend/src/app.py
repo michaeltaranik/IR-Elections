@@ -61,20 +61,33 @@ def run_query(query: str, filters: dict[str, str]) -> list[SearchResult]:
 
         payload: list[SearchResult] = []
         seen: set[tuple[str, str]] = set()
+        
         for hit in results:
-            if filters.get("country") and hit.get("country") != filters["country"]:
+            country_filter = filters.get("country")
+            if country_filter and country_filter != "All" and hit.get("country") != country_filter:
                 continue
-            if filters.get("year") and str(hit.get("year")) != str(filters["year"]):
-                continue
+
+            year_filter = filters.get("year")
+            if year_filter and year_filter != "All":
+                hit_year = str(hit.get("year")) if hit.get("year") is not None else ""
+                if hit_year != str(year_filter):
+                    continue
+
             key = (hit.get("url"), hit.get("title"))
             if key in seen:
                 continue
             seen.add(key)
+
+            # Plain-text snippet from stored content (no HTML/highlights).
+            full_content = (hit.get("content") or "").strip()
+            if full_content:
+                snippet = full_content[:40]
+
             payload.append(
                 SearchResult(
                     title=hit["title"],
                     url=hit["url"],
-                    snippet=hit.highlights("content") or hit["title"],
+                    snippet=hit.highlights("content"),
                     year=hit.get("year"),
                     country=hit.get("country"),
                 )
@@ -86,9 +99,24 @@ def apply_clustering(results: list[SearchResult], k: int = 4) -> None:
     if not results:
         return
 
-    snippets = [result.snippet for result in results]
+    # Use title + metadata as text for clustering instead of snippets.
+    texts = [
+        " ".join(
+            [
+                result.title or "",
+                str(result.year or ""),
+                result.country or "",
+            ]
+        ).strip()
+        for result in results
+    ]
+    # Ensure we have enough non-empty texts to cluster.
+    non_empty_texts = [t for t in texts if t]
+    if len(non_empty_texts) < k:
+        return
+
     vectorizer = TfidfVectorizer(stop_words="english")
-    matrix = vectorizer.fit_transform(snippets)
+    matrix = vectorizer.fit_transform(texts)
 
     k = min(k, len(results))
     clusters = KMeans(n_clusters=k, n_init="auto", random_state=42)

@@ -15,6 +15,19 @@ export function ResultCard({ result }: ResultCardProps) {
 
   const countryColor = result.country ? countryColors[result.country] || 'bg-gray-100 text-gray-800 border-gray-200' : 'bg-gray-100 text-gray-800 border-gray-200';
 
+  // Use colors that actually exist in the Tailwind build (see index.css palette)
+  const clusterColors: Record<number, string> = {
+    0: 'bg-purple-100 text-purple-800 border-purple-200', // light purple
+    1: 'bg-blue-100 text-blue-800 border-blue-200',       // blue
+    2: 'bg-red-100 text-red-800 border-red-200',          // red
+    3: 'bg-gray-100 text-gray-800 border-gray-200',       // gray
+  };
+
+  const clusterColor =
+    typeof result.cluster === 'number'
+      ? clusterColors[result.cluster] || 'bg-gray-100 text-gray-800 border-gray-200'
+      : 'bg-gray-100 text-gray-800 border-gray-200';
+
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-lg transition-shadow">
       <div className="flex items-start justify-between mb-4">
@@ -34,24 +47,24 @@ export function ResultCard({ result }: ResultCardProps) {
             {result.country && (
               <div className="flex items-center gap-1">
                 <MapPin className="w-4 h-4" />
-                <span>{result.country}</span>
+                <span className="text-center">{result.country}</span>
               </div>
             )}
             {result.year && (
               <div className="flex items-center gap-1">
                 <Calendar className="w-4 h-4" />
-                <span>{result.year}</span>
+                <span className="text-center">{result.year}</span>
               </div>
             )}
           </div>
           <div
-            className="text-gray-700 leading-relaxed max-h-32 overflow-hidden"
+            className="text-gray-400 leading-relaxed max-h-32 overflow-hidden"
             dangerouslySetInnerHTML={{ __html: result.snippet }}
           />
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
           {typeof result.cluster === 'number' && (
-            <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-xs border border-gray-200">
+            <span className={`px-3 py-1 rounded-full text-xs leading-tight border ${clusterColor}`}>
               Cluster {result.cluster + 1}
             </span>
           )}

@@ -44,7 +44,7 @@ def build_index() -> None:
     INDEX_DIR.mkdir(exist_ok=True)
 
     schema = build_schema()
-        idx = index.create_in(INDEX_DIR, schema)
+    idx = index.create_in(INDEX_DIR, schema)
 
     writer = idx.writer()
     documents = load_corpus()

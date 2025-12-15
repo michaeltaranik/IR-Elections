@@ -189,10 +189,6 @@ def crawl() -> None:
         ),
         # Additional seeds (non-Wikipedia) to diversify sources
         (
-            "https://www.archives-resultats-elections.interieur.gouv.fr/presidentielle-2022/T1/FE.html",
-            parse_france,
-        ),
-        (
             "https://www.presidency.ucsb.edu/statistics/data",
             parse_usa,
         ),
@@ -238,7 +234,7 @@ def crawl() -> None:
                 
                 # Discover links for next depth level
                 if current_depth < max_depth:
-                    discovered_links = discover_links(soup, url, max_links=5)
+                    discovered_links = discover_links(soup, url, max_links=20)
                     for link in discovered_links:
                         if link not in crawled_urls:
                             # Determine parser based on URL patterns

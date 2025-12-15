@@ -15,13 +15,24 @@ import json
 import logging
 import re
 import hashlib
+import time
 
 import requests
 from bs4 import BeautifulSoup
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 CORPUS_PATH = DATA_DIR / "corpus.json"
-MAX_CONTENT_LEN = 2000
+MAX_CONTENT_LEN = 5000
+
+# Crawl/runtime controls
+# Maximum time budget for a crawl run (in seconds). This is a soft limit:
+# we check before processing each URL and stop when exceeded.
+MAX_RUNTIME_SECONDS = 300
+
+# How often to checkpoint partial results to disk (in number of processed URLs).
+# Set to 1 to ensure every successfully crawled URL is persisted so you can stop
+# the process at any time and still have data.
+CHECKPOINT_EVERY_URLS = 1
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -246,7 +257,11 @@ def discover_links(soup: BeautifulSoup, base_url: str, max_links: int = 10) -> l
         href = anchor.get("href", "")
         text = normalize_text(anchor.get_text())
         
-        election_keywords = ["election", "presidential", "parliamentary", "federal", "vote", "candidate", "result"]
+        election_keywords = [
+            "election", "presidential", "parliamentary", "federal",
+            "vote", "voting", "candidate", "result", "results",
+            "turnout", "referendum", "ballot", "runoff"
+        ]
         if any(keyword in text.lower() or keyword in href.lower() for keyword in election_keywords):
             if href.startswith("/"):
                 full_url = base_domain + href
@@ -288,8 +303,12 @@ def crawl() -> None:
     urls_to_crawl = sources.copy()
     crawled_urls: set[str] = set()
     
-    max_depth = 2 
+    max_depth = 3 
     current_depth = 0
+
+    # Timing + checkpoint tracking
+    start_time = time.time()
+    urls_processed = 0
 
     while urls_to_crawl and current_depth < max_depth:
         current_batch = urls_to_crawl.copy()
@@ -297,6 +316,21 @@ def crawl() -> None:
         current_depth += 1
 
         for url, parser in current_batch:
+            # Respect overall runtime budget before starting a new URL
+            elapsed = time.time() - start_time
+            if elapsed > MAX_RUNTIME_SECONDS:
+                logger.info(
+                    "Time budget of %s seconds exceeded (%.2f s elapsed). "
+                    "Stopping crawl early with %d URLs and %d documents.",
+                    MAX_RUNTIME_SECONDS,
+                    elapsed,
+                    len(crawled_urls),
+                    len(all_docs),
+                )
+                persist_documents(all_docs)
+                logger.info("Final checkpoint written before early stop.")
+                return
+
             if url in crawled_urls:
                 continue
             crawled_urls.add(url)
@@ -310,7 +344,9 @@ def crawl() -> None:
                     # Deduplicate based on URL base (ignoring anchor) and Title
                     base_url = doc.url.split("#", 1)[0]
                     key = (base_url, doc.title)
-                    content_hash = hashlib.sha1(f"{doc.title}|{doc.content}".encode("utf-8", errors="ignore")).hexdigest()
+                    content_hash = hashlib.sha1(
+                        f"{doc.title}|{doc.content}".encode("utf-8", errors="ignore")
+                    ).hexdigest()
                     
                     if key in seen or content_hash in seen_hashes:
                         continue
@@ -318,9 +354,21 @@ def crawl() -> None:
                     seen_hashes.add(content_hash)
                     all_docs.append(doc)
                 
+                urls_processed += 1
+
+                # Periodically checkpoint partial results so the user can stop
+                # the process at any time and still keep most of the progress.
+                if urls_processed % CHECKPOINT_EVERY_URLS == 0:
+                    logger.info(
+                        "Checkpointing after %d processed URLs: %d documents so far.",
+                        urls_processed,
+                        len(all_docs),
+                    )
+                    persist_documents(all_docs)
+                
                 # Discovery for next depth
                 if current_depth < max_depth:
-                    discovered_links = discover_links(soup, url, max_links=10)
+                    discovered_links = discover_links(soup, url, max_links=15)
                     for link in discovered_links:
                         if link not in crawled_urls:
                             link_lower = link.lower()

@@ -50,16 +50,26 @@ def get_searcher():
 
 def run_query(query: str, filters: dict[str, str]) -> list[SearchResult]:
     with get_searcher() as searcher:
-        parser = MultifieldParser(["title", "content"], schema=searcher.schema)
+        # Boost title matches via fieldboosts
+        parser = MultifieldParser(
+            ["title", "content"],
+            schema=searcher.schema,
+            fieldboosts={"title": 2.0, "content": 1.0},
+        )
         parsed_query = parser.parse(query)
-        results = searcher.search(parsed_query, limit=50)
+        results = searcher.search(parsed_query, limit=50, scored=True)
 
         payload: list[SearchResult] = []
+        seen: set[tuple[str, str]] = set()
         for hit in results:
             if filters.get("country") and hit.get("country") != filters["country"]:
                 continue
             if filters.get("year") and str(hit.get("year")) != str(filters["year"]):
                 continue
+            key = (hit.get("url"), hit.get("title"))
+            if key in seen:
+                continue
+            seen.add(key)
             payload.append(
                 SearchResult(
                     title=hit["title"],

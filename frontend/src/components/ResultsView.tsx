@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, SlidersHorizontal, Loader2 } from 'lucide-react';
 import { SearchResult } from '../api';
 import { ResultCard } from './ResultCard';
@@ -16,6 +16,11 @@ export function ResultsView({ results, searchQuery, onNewSearch, onSearch, loadi
   const [newQuery, setNewQuery] = useState(searchQuery);
   const [selectedCountry, setSelectedCountry] = useState<string>('All');
   const [selectedYear, setSelectedYear] = useState<string>('All');
+
+  // Keep the local input in sync with parent search query
+  useEffect(() => {
+    setNewQuery(searchQuery);
+  }, [searchQuery]);
 
   // Get unique values for filters
   const countries = ['All', ...Array.from(new Set(results.map(r => r.country).filter(Boolean) as string[]))];
@@ -38,7 +43,7 @@ export function ResultsView({ results, searchQuery, onNewSearch, onSearch, loadi
     return acc;
   }, {} as Record<string, SearchResult[]>);
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (newQuery.trim() && !loading) {
       const country = selectedCountry !== 'All' ? selectedCountry : null;
@@ -138,9 +143,14 @@ export function ResultsView({ results, searchQuery, onNewSearch, onSearch, loadi
           {/* Results List */}
           <div className="flex-1">
             <div className="mb-4">
-              <p className="text-gray-600">
-                {filteredResults.length} result{filteredResults.length !== 1 ? 's' : ''} for "{searchQuery}"
-              </p>
+                <p className="text-gray-600">
+                  {filteredResults.length} result{filteredResults.length !== 1 ? 's' : ''} for "{searchQuery}"
+                  {(selectedCountry !== 'All' || selectedYear !== 'All') && (
+                    <span className="text-gray-500 text-sm ml-2">
+                      (filtered by {selectedCountry !== 'All' ? selectedCountry : ''}{selectedCountry !== 'All' && selectedYear !== 'All' ? ' and ' : ''}{selectedYear !== 'All' ? selectedYear : ''})
+                    </span>
+                  )}
+                </p>
             </div>
 
             {loading ? (
@@ -166,7 +176,9 @@ export function ResultsView({ results, searchQuery, onNewSearch, onSearch, loadi
                     </h3>
                     <div className="space-y-4">
                       {clusterResults.map((result, idx) => (
-                        <ResultCard key={`${result.url}-${idx}`} result={result} />
+                        <div key={`${result.url}-${idx}`}>
+                          <ResultCard result={result} />
+                        </div>
                       ))}
                     </div>
                   </div>

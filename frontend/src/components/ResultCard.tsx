@@ -1,3 +1,4 @@
+import React from 'react';
 import { SearchResult } from '../api';
 import { MapPin, Calendar, ExternalLink } from 'lucide-react';
 
@@ -18,7 +19,7 @@ export function ResultCard({ result }: ResultCardProps) {
     <div className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-lg transition-shadow">
       <div className="flex items-start justify-between mb-4">
         <div className="flex-1">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+          <h3 className="text-lg font-semibold text-gray-900 mb-2 line-clamp-2 leading-tight">
             <a 
               href={result.url} 
               target="_blank" 
@@ -43,13 +44,23 @@ export function ResultCard({ result }: ResultCardProps) {
               </div>
             )}
           </div>
-          <p className="text-gray-700 leading-relaxed">{result.snippet}</p>
+          <div
+            className="text-gray-700 leading-relaxed max-h-32 overflow-hidden"
+            dangerouslySetInnerHTML={{ __html: result.snippet }}
+          />
         </div>
-        {result.country && (
-          <span className={`px-3 py-1 rounded-full border text-sm shrink-0 ${countryColor}`}>
-            {result.country}
-          </span>
-        )}
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          {typeof result.cluster === 'number' && (
+            <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-xs border border-gray-200">
+              Cluster {result.cluster + 1}
+            </span>
+          )}
+          {result.country && (
+            <span className={`px-3 py-1 rounded-full border text-sm ${countryColor}`}>
+              {result.country}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );

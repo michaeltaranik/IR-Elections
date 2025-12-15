@@ -18,7 +18,7 @@ export default function App() {
     try {
       const searchResults = await searchElections({ query, country, year });
       setResults(searchResults);
-      setView('results');
+    setView('results');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to search. Make sure the backend is running.');
       console.error('Search error:', err);

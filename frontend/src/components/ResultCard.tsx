@@ -19,7 +19,7 @@ export function ResultCard({ result }: ResultCardProps) {
     <div className="bg-white rounded-lg border border-gray-200 p-6 hover:shadow-lg transition-shadow">
       <div className="flex items-start justify-between mb-4">
         <div className="flex-1">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2 line-clamp-2 leading-tight">
+          <h3 className="text-lg font-semibold text-gray-900 mb-2 title-clamp leading-tight">
             <a 
               href={result.url} 
               target="_blank" 

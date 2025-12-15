@@ -211,3 +211,4 @@ node_modules/
 
 # Project data (crawled corpus, generated files)
 backend/data/
+.DS_Store

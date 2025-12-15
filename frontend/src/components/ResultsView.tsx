@@ -168,14 +168,18 @@ export function ResultsView({ results, searchQuery, onNewSearch, onSearch, loadi
           {/* Results List */}
           <div className="flex-1">
             <div className="mb-4">
-                <p className="text-gray-600">
-                  {filteredResults.length} result{filteredResults.length !== 1 ? 's' : ''} for "{searchQuery}"
-                  {(selectedCountry !== 'All' || selectedYear !== 'All') && (
-                    <span className="text-gray-500 text-sm ml-2">
-                      (filtered by {selectedCountry !== 'All' ? selectedCountry : ''}{selectedCountry !== 'All' && selectedYear !== 'All' ? ' and ' : ''}{selectedYear !== 'All' ? selectedYear : ''})
-                    </span>
-                  )}
-                </p>
+              <p className="text-gray-600">
+                {filteredResults.length} result{filteredResults.length !== 1 ? 's' : ''} for "{searchQuery}"
+                {(selectedCountry !== 'All' || selectedYear !== 'All' || selectedCluster !== 'All') && (
+                  <span className="text-gray-500 text-sm ml-2">
+                    (filtered by
+                    {selectedCountry !== 'All' && <> country: {selectedCountry}</>}
+                    {selectedYear !== 'All' && <> year: {selectedYear}</>}
+                    {selectedCluster !== 'All' && <> cluster: {selectedCluster}</>}
+                    )
+                  </span>
+                )}
+              </p>
             </div>
 
             {loading ? (

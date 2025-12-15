@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Search } from 'lucide-react';
 
 interface SearchViewProps {
@@ -9,11 +9,16 @@ interface SearchViewProps {
 export function SearchView({ onSearch, loading = false }: SearchViewProps) {
   const [query, setQuery] = useState('');
 
+  const runSearch = (newQuery: string, country?: string | null, year?: number | null) => {
+    const trimmed = newQuery.trim();
+    if (!trimmed || loading) return;
+    setQuery(trimmed);
+    onSearch(trimmed, country, year);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (query.trim() && !loading) {
-      onSearch(query.trim());
-    }
+    runSearch(query);
   };
 
   return (
@@ -45,28 +50,28 @@ export function SearchView({ onSearch, loading = false }: SearchViewProps) {
 
         <div className="mt-8 grid grid-cols-2 gap-4">
           <button
-            onClick={() => onSearch('election', 'France', null)}
+            onClick={() => runSearch('France elections', 'France', null)}
             disabled={loading}
             className="px-4 py-3 bg-white border border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors disabled:opacity-50"
           >
             France Elections
           </button>
           <button
-            onClick={() => onSearch('election', 'USA', null)}
+            onClick={() => runSearch('USA elections', 'USA', null)}
             disabled={loading}
             className="px-4 py-3 bg-white border border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors disabled:opacity-50"
           >
             USA Elections
           </button>
           <button
-            onClick={() => onSearch('election', null, 2024)}
+            onClick={() => runSearch('2024 elections', null, 2024)}
             disabled={loading}
             className="px-4 py-3 bg-white border border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors disabled:opacity-50"
           >
             2024 Elections
           </button>
           <button
-            onClick={() => onSearch('election', 'Switzerland', null)}
+            onClick={() => runSearch('Switzerland elections', 'Switzerland', null)}
             disabled={loading}
             className="px-4 py-3 bg-white border border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors disabled:opacity-50"
           >

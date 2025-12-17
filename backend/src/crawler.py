@@ -25,13 +25,7 @@ CORPUS_PATH = DATA_DIR / "corpus.json"
 MAX_CONTENT_LEN = 5000
 
 # Crawl/runtime controls
-# Maximum time budget for a crawl run (in seconds). This is a soft limit:
-# we check before processing each URL and stop when exceeded.
 MAX_RUNTIME_SECONDS = 300
-
-# How often to checkpoint partial results to disk (in number of processed URLs).
-# Set to 1 to ensure every successfully crawled URL is persisted so you can stop
-# the process at any time and still have data.
 CHECKPOINT_EVERY_URLS = 1
 
 logging.basicConfig(level=logging.INFO)
@@ -86,8 +80,6 @@ def normalize_table(table: BeautifulSoup) -> list[list[str]]:
     if not rows:
         return []
 
-    # Initialize a large empty grid
-    # (Size 100 is arbitrary but sufficient for most web tables)
     grid = []
     for _ in rows:
         grid.append([""] * 100)
@@ -99,7 +91,6 @@ def normalize_table(table: BeautifulSoup) -> list[list[str]]:
         cells = row.find_all(["td", "th"])
         
         for cell in cells:
-            # Skip grid slots already filled by a rowspan from above
             while grid[r_idx][c_idx]:
                 c_idx += 1
             
@@ -107,7 +98,6 @@ def normalize_table(table: BeautifulSoup) -> list[list[str]]:
             rowspan = int(cell.get("rowspan", 1))
             colspan = int(cell.get("colspan", 1))
 
-            # Fill the rectangle defined by rowspan/colspan
             for r in range(rowspan):
                 for c in range(colspan):
                     if r_idx + r < len(grid):
@@ -142,15 +132,12 @@ def parse_table_rows(soup: BeautifulSoup, url: str, country: str) -> list[Docume
     tables = soup.find_all("table")
     
     for table in tables:
-        # 1. Normalize complex tables (handles colspan/rowspan issues)
         grid = normalize_table(table)
         if not grid or len(grid) < 2:
             continue
             
-        # 2. Assume row 0 is headers
         headers = grid[0]
         
-        # 3. Get Context (Section Heading)
         heading_text = ""
         heading_anchor = None
         prev = table.find_previous(["h1", "h2", "h3", "h4"])
@@ -159,7 +146,6 @@ def parse_table_rows(soup: BeautifulSoup, url: str, country: str) -> list[Docume
             if prev.has_attr("id"):
                 heading_anchor = prev["id"]
 
-        # 4. Extract Data Rows
         for row in grid[1:]:
             # Skip empty rows or rows that replicate headers
             if not any(row) or row == headers:
@@ -172,7 +158,6 @@ def parse_table_rows(soup: BeautifulSoup, url: str, country: str) -> list[Docume
 
             primary_key = non_empty_cells[0]
             
-            # Build content string: "Header: Value | Header: Value"
             parts = []
             for i, cell_value in enumerate(row):
                 if i < len(headers) and headers[i] and cell_value:
@@ -182,13 +167,9 @@ def parse_table_rows(soup: BeautifulSoup, url: str, country: str) -> list[Docume
             
             content = " | ".join(parts)
             
-            # --- IMPROVED DEEP LINKING ---
-            # Create a "Range Fragment" (StartText,EndText) to ensure uniqueness.
-            # Example: #:~:text=Trump,46.8%
             url_with_anchor = url
             
             if len(non_empty_cells) >= 2:
-                # Use first and second values to anchor the link
                 first = quote(non_empty_cells[0])
                 second = quote(non_empty_cells[1])
                 url_with_anchor = f"{url}#:~:text={first},{second}"

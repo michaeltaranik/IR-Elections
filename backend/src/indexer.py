@@ -38,7 +38,6 @@ def load_corpus() -> list[dict]:
 
 
 def build_index() -> None:
-    # Rebuild from scratch to avoid stale indexes/locks.
     if INDEX_DIR.exists():
         shutil.rmtree(INDEX_DIR)
     INDEX_DIR.mkdir(exist_ok=True)

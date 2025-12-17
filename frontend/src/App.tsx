@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { SearchView } from './components/SearchView';
 import { ResultsView } from './components/ResultsView';
 import { searchElections, SearchResult } from './api';

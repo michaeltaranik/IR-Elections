@@ -1,96 +1,167 @@
-# IR Project 20: Election Results Search Engine
+## IR-Elections: Election Results Search Engine
 
-## Team Members
+### Team Members
 
-- Kameniev Danylo
-- Taranik Mykhailo
+- **Kameniev Danylo**
+- **Taranik Mykhailo**
 
-## Project Overview
+---
 
-This project is an Information Retrieval system designed to index, search, and cluster election results from multiple international sources. The system allows users to search for candidates, parties, and election events, filtering results by specific attributes and viewing them in clustered topics.
+### Project Overview
 
-## Data Sources
+**IR-Elections** is a full-stack information retrieval system that indexes, searches, and clusters election results from multiple international sources.  
+Users can search for candidates, parties, and election events across countries, apply advanced filters (country, year, cluster), and explore results grouped into topics.
 
-We have selected three distinct sources covering different political systems (Presidential, Federal, etc.):
+---
 
-1.  **French Ministry of Interior (France)**
+### Data Sources
 
-    - _URL:_ `https://www.archives-resultats-elections.interieur.gouv.fr`
-    - _Content:_ Official results for French Presidential, Legislative, and Regional elections.
-    - _Format:_ Hierarchical HTML (Year > Election Type > Round > Department).
+The crawler focuses on public election-related pages, including:
 
-2.  **The American Presidency Project (USA)**
+- **France**
 
-    - _URL:_ `https://www.presidency.ucsb.edu/statistics/data`
-    - _Content:_ Detailed data on US Presidential elections, approval ratings, and historical records.
-    - _Format:_ HTML Tables and textual descriptions.
+  - Examples: French presidential election pages, French Ministry of Interior archives
+  - Content: Presidential, legislative, and regional election data (tables + page text)
 
-3.  **Swiss Federal Statistical Office (Switzerland)**
-    - _URL:_ `https://www.elections.admin.ch/en/ch/`
-    - _Content:_ Federal election results, mandate allocations, and candidate lists by Canton.
-    - _Format:_ Structured HTML tables.
+- **USA**
 
-## Features
+  - Examples: American Presidency Project statistics pages, US election overviews
+  - Content: Presidential election results, vote statistics, historical data
 
-### 1. Simple Feature: Advanced Filtering
+- **Switzerland, Germany, Canada**
+  - Examples: Swiss federal election pages, Bundeswahlleiter (Germany), Elections Canada
+  - Content: Federal election results, turnout, party and candidate information
 
-- **Description:** Users can refine their search results based on structured attributes extracted during crawling.
-- **Filters Chosen:**
-  - `Country` (e.g., France, USA, Switzerland)
-  - `Year` (e.g., 2022, 2020)
-  - `Type` (e.g., Presidential, Parliamentary)
+The crawler discovers additional relevant links starting from a set of seed URLs and saves a normalized corpus to `backend/data/corpus.json`.
 
-### 2. Complex Feature: Results Clustering
+---
 
-- **Description:** The search engine dynamically groups search results into "topics" to help users explore related concepts.
-- **Implementation:** \* We will apply **K-Means Clustering** (or similar) on the search result snippets.
-  - Results will be displayed in groups (e.g., a search for "Green" might cluster into "Green Party Candidates" vs "Environmental Referendums").
+### Features
 
-## Technical Architecture
+- **Advanced Filtering (Simple Feature)**
 
-### Implementation Plan
+  - Filter search results by **Country** (e.g., France, USA, Switzerland, Germany, Canada)
+  - Filter by **Year** (detected from URLs, titles, or page content)
+  - Combine filters with free-text search over titles and content
 
-#### Phase 1: The Crawler (`crawler.py`)
+- **Results Clustering (Complex Feature)**
+  - Uses **TF‑IDF** vectorization + **K-Means** clustering on search results
+  - Assigns a cluster label to each result (e.g., `Cluster 1`, `Cluster 2`, …)
+  - Frontend groups and filters results by cluster to help users explore topics (e.g., “Green Party candidates” vs. “environmental referendums”)
 
-- [ ] **Setup:** Create a `BeautifulSoup` script to fetch pages.
-- [ ] **Extraction:**
-  - Identify "Container" elements (e.g., `<div>` or `<table>` rows).
-  - Extract `Title`, `Full Text`, and `URL`.
-  - **Crucial:** Extract Metadata (`Year`, `Country`) from the URL structure or page breadcrumbs.
-- [ ] **Storage:** Save parsed documents into a structured JSON file (e.g., `data/corpus.json`) to decouple crawling from indexing.
+---
 
-#### Phase 2: The Indexer (`indexer.py`)
+### Architecture Overview
 
-- [ ] **Schema Design:** Define the Whoosh schema:
-  ```python
-  schema = Schema(title=TEXT(stored=True),
-                  content=TEXT,
-                  url=ID(stored=True),
-                  year=NUMERIC(stored=True),
-                  country=ID(stored=True))
-  ```
-- [ ] **Build Index:** Iterate through `corpus.json` and add documents to the index directory.
+- **Backend (`backend/`, Python + Flask)**
 
-#### Phase 3: The Search Engine (`app.py`)
+  - `src/crawler.py`: Multi-country crawler that:
+    - Fetches HTML pages from seed URLs and discovered links
+    - Extracts structured table rows and full-page text into `Document` objects
+    - Infers `year` and `country` metadata
+    - Writes the normalized corpus to `data/corpus.json`
+  - `src/indexer.py`: Whoosh indexer that:
+    - Defines a schema with `title`, `content`, `url`, `year`, `country`
+    - Reads `corpus.json` and builds the search index in `backend/index/`
+  - `src/app.py`: Flask API that:
+    - Exposes `POST /search` (query + filters → ranked results + clusters)
+    - Uses Whoosh for full-text search (title + content)
+    - Applies K-Means clustering over result metadata
+    - Exposes `GET /health` for simple health checks
+  - `run.sh`: Helper script to (re)build the index and start the Flask app.
 
-- [ ] **Query Parsing:** Implement a MultifieldParser to search both Title and Content.
-- [ ] **Filtering Logic:** Add filter clauses to the query based on user selection.
-- [ ] **Clustering Logic:**
-  1.  Retrieve Top N results (e.g., 50).
-  2.  Extract snippets.
-  3.  Vectorize snippets using TF-IDF.
-  4.  Run K-Means (k=4).
-  5.  Assign cluster labels to results before sending to frontend.
+- **Frontend (`frontend/`, React + TypeScript + Vite)**
+  - `src/api.ts`: Calls the backend at `http://127.0.0.1:5000/search`
+  - `App.tsx`, `SearchView`, `ResultsView`, `ResultCard`:
+    - Modern, responsive search interface
+    - Filters for Country, Year, and Cluster
+    - Results grouped visually by cluster label
 
-#### Phase 4: Integration
+---
 
-- [ ] Connect the Python Flask backend to the Frontend interface.
-- [ ] Render "Google-style" snippets with highlighted query terms.
+### Getting Started
 
-## How to Run
+#### 1. Prerequisites
 
-1.  Install dependencies: `pip install -r requirements.txt`
-2.  Run the crawler: `python src/crawler.py`
-3.  Build the index: `python src/indexer.py`
-4.  Start the server: `python src/app.py`
-5.  Open browser at `http://127.0.0.1:5000`
+- **Python**: 3.11+
+- **Node.js**: 18+ (LTS recommended)
+- Git (optional, for version control)
+
+All commands below assume the project root is `IR-Elections/`.
+
+---
+
+#### 2. Backend Setup and Run
+
+From the project root:
+
+```bash
+cd backend
+
+# (Optional) create a virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install Python dependencies
+pip install -r requirements.txt
+```
+
+Then:
+
+```bash
+# 1) Crawl election data (writes to data/corpus.json)
+python src/crawler.py
+
+# 2) Build the Whoosh index into backend/index/
+python src/indexer.py
+
+# 3) Start the Flask server
+python src/app.py
+```
+
+The backend will listen on `http://127.0.0.1:5000`.
+
+You can also use the helper script:
+
+```bash
+cd backend
+bash run.sh
+```
+
+> **Note:** The crawler hits public web pages and may take several minutes depending on network conditions and the runtime limit configured in `crawler.py`.
+
+---
+
+#### 3. Frontend Setup and Run
+
+In a new terminal, from the project root:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Vite will print a local development URL.
+Open it in a browser while the backend is running to use the full search experience.
+
+---
+
+### Data Flow
+
+1. **Crawling** (`backend/src/crawler.py`)  
+   Public election pages → parsed into normalized `Document` objects → saved to `backend/data/corpus.json`
+2. **Indexing** (`backend/src/indexer.py`)  
+   `corpus.json` → Whoosh index in `backend/index/`
+3. **Search & Clustering** (`backend/src/app.py`)  
+   User query + filters → Whoosh search → filtered results → TF‑IDF + K-Means → JSON response
+4. **Presentation** (`frontend/`)  
+   React app calls `/search` → displays results with filters and cluster grouping.
+
+---
+
+### Limitations and Notes
+
+- The crawler focuses on a curated set of election-related pages and discovered links; it is not a full web-scale crawler.
+- Year and country extraction rely on heuristics (URLs, headings, and content) and may occasionally be missing or approximate.
+- The clustering is unsupervised and intended for topic exploration rather than strict, labeled topics.
